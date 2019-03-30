@@ -1,0 +1,80 @@
+<launch>
+
+    <arg name="gaze_node" default="true"/>
+    <arg name="use_colored" default="true"/>
+    <arg name="gen_pointcloud" default="true"/>
+    <arg name="rviz_viewer" default="true"/>
+    # Flag to spawn the r200 simulated camera pose controller using the space mouse
+    <arg name="spacenav_control" default="false"/>
+    # Flag to initiate the gaze faker utility
+    <arg name="fake_gaze"        default="true"/>
+
+
+
+    # Starting nodelet manager
+    <arg name="manager"     default="standalone_nodelet"/>
+    # Arguments for Gazebo Simulation
+    <arg name="paused"      default="false"/>
+    <arg name="use_sim_time" default="true"/>
+    <arg name="gui"         default="false"/>
+    <arg name="headless"    default="false"/>
+    <arg name="debug"       default="false"/>
+    <arg name="world_name"  default="$(find assistive_control)/worlds/assistive_control.world"/>
+    # Flag to control the RVIZ opening
+    <arg name="bond"        default=""/>
+    <arg name="respawn"     default="false"/>
+
+    # Some variable that define the name of the topics in the simulation, using same as r200_pupil nodelet
+    <arg name="rgb_info"         value="/pupil/world/camera_info"/>
+    <arg name="rgb_image"        value="/pupil/world/image_raw"/>
+    <arg name="depth_info"       value="/pupil/depth/camera_info"/>
+    <arg name="depth_image"      value="/pupil/depth/image_raw"/>
+    <arg name="depth_registered" value="/pupil/depth_registered/image_raw"/>
+    <arg name="point_cloud"      value="/pupil/points"/>
+
+    <node pkg="nodelet" type="nodelet" name="$(arg manager)" respawn="$(arg respawn)" args="manager" output="screen"/>
+
+    # Construct static TF for camera frames
+    <node pkg="tf" type="static_transform_publisher" name="jaco_broadcaster" args="0 0 0.75 0 0 0 1 world jaco 15"/>
+    # Necessary a dynamic TF from jaco -> r200_camera_link, done in horn_transform
+    <node pkg="tf" type="static_transform_publisher" name="r200_color_broadcaster"          args="0 0 0 0 0 0 1 r200_camera_link r200_color_frame 15"/>
+    <node pkg="tf" type="static_transform_publisher" name="r200_depth_broadcaster"          args="0 -0.0593 0 0 0 0 1 r200_camera_link r200_depth_frame 15"/>
+    <node pkg="tf" type="static_transform_publisher" name="r200_rgb_optical_broadcaster"    args="0 0 0 -0.5 0.5 -0.5 0.5 r200_color_frame rgb_optical_frame 15"/>
+    <node pkg="tf" type="static_transform_publisher" name="r200_depth_optical_broadcaster"  args="0 0 0 -0.5 0.5 -0.5 0.5 r200_depth_frame depth_optical_frame 15"/>
+
+    # Build on top of the gazebo empty_world
+    <include file="$(find gazebo_ros)/launch/empty_world.launch">
+        <arg name="world_name" value="$(arg world_name)"/>
+        <arg name="debug" value="$(arg debug)" />
+        <arg name="gui" value="$(arg gui)" />
+        <arg name="paused" value="$(arg paused)"/>
+        <arg name="use_sim_time" value="$(arg use_sim_time)"/>
+        <arg name="headless" value="$(arg headless)"/>
+    </include>
+
+    <group if="$(arg gen_pointcloud)">
+        # Use modified register so we can optimize for the R200 camera
+        <node pkg="nodelet" type="nodelet" name="modified_register_pupil_depth"
+                 args="load depth_image_proc/register $(arg manager) $(arg bond)"
+                 respawn="$(arg respawn)" output="screen">
+            <remap from="depth/image_rect"            to="$(arg depth_image)"/>
+            <remap from="rgb/camera_info"             to="$(arg rgb_info)" />
+            <remap from="depth/camera_info"           to="$(arg depth_info)" />
+            <remap from="depth_registered/image_rect" to="$(arg depth_registered)"/>
+        </node>
+
+        <node pkg="nodelet" type="nodelet" name="points_pupil_xyzrgb"
+                 args="load depth_image_proc/point_cloud_xyzrgb $(arg manager) $(arg bond) exact_sync"
+                 respawn="$(arg respawn)" output="screen">
+            <remap from="rgb/camera_info"             to="$(arg rgb_info)"/>
+            <remap from="rgb/image_rect_color"        to="$(arg rgb_image)"/>
+            <remap from="depth_registered/image_rect" to="$(arg depth_registered)"/>
+            <remap from="depth_registered/points"     to="$(arg point_cloud)"/>
+        </node>
+    </group>
+
+    # Optional: Colorizes the depth stream into a Heat amp acoording to the distance
+    # Limited from 80cm to 3.5m (hardcoded)
+    <node if="$(arg use_colored)" pkg="nodelet" type="nodelet" name="ColoredDepth" args="load pupil_utils/ColoredDepth $(arg manager) $(arg bond)" output="screen"/>
+
+</launch>

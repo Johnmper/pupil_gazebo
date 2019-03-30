@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="rviz" type="rviz" name="pupil_gazebo_rviz" output="screen" respawn="false"
+        args="-d $(find pupil_gazebo)/rviz/pupil_gazebo.rviz"/>
+</launch>
